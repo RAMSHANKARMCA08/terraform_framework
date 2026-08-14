@@ -1,0 +1,22 @@
+applications:
+  app1:
+    l1:
+      name: App1 Operations
+      email: app1-l1@example.com
+    l2:
+      name: App1 Engineering
+      email: app1-l2@example.com
+  app2:
+    l1:
+      name: App2 Operations
+      email: app2-l1@example.com
+    l2:
+      name: App2 Engineering
+      email: app2-l2@example.com
+  app3:
+    l1:
+      name: App3 Operations
+      email: app3-l1@example.com
+    l2:
+      name: App3 Engineering
+      email: app3-l2@example.com

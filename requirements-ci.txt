@@ -1,0 +1,5 @@
+# CI scanner versions (standalone Go tools; installed by GitHub Actions, not pip).
+# terraform: 1.9.8
+# tflint: 0.59.1
+# terrascan: 1.19.9
+PyYAML>=6.0,<7.0

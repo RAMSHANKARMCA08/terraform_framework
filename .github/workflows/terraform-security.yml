@@ -1,0 +1,57 @@
+name: Terraform security checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tflint:
+    name: TFLint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Load scanner versions
+        id: scanner_versions
+        shell: bash
+        run: |
+          tflint_version=$(bash scripts/get-ci-tool-version.sh tflint)
+          echo "tflint=$tflint_version" >> "$GITHUB_OUTPUT"
+
+      - name: Set up TFLint
+        uses: terraform-linters/setup-tflint@v6
+        with:
+          tflint_version: v${{ steps.scanner_versions.outputs.tflint }}
+
+      - name: Initialize TFLint plugins
+        run: tflint --init
+
+      - name: Run TFLint
+        run: tflint --recursive --format compact
+
+  terrascan:
+    name: Terrascan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Load Terrascan version
+        id: scanner_versions
+        shell: bash
+        run: |
+          terrascan_version=$(bash scripts/get-ci-tool-version.sh terrascan)
+          echo "terrascan=$terrascan_version" >> "$GITHUB_OUTPUT"
+
+      - name: Run Terrascan
+        shell: bash
+        run: |
+          docker run --rm \
+            --volume "$GITHUB_WORKSPACE:/src" \
+            --workdir /src \
+            "tenable/terrascan:${{ steps.scanner_versions.outputs.terrascan }}" \
+            scan --iac-type terraform --policy-type aws --iac-dir /src
