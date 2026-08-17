@@ -1,0 +1,66 @@
+name: Application Cost Report
+
+on:
+  workflow_dispatch:
+    inputs:
+      appname:
+        required: true
+        type: string
+        default: instant-app
+      environment:
+        required: true
+        type: string
+        default: prod
+
+permissions:
+  contents: read
+
+jobs:
+  cost:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+      - name: Query AWS Budget and Cost Explorer
+        shell: bash
+        run: |
+          set -euo pipefail
+          account_id=$(aws sts get-caller-identity --query Account --output text)
+          start=$(date -u +%Y-%m-01)
+          end=$(date -u -d 'tomorrow' +%Y-%m-%d)
+          budget_name="${{ inputs.appname }}-${{ inputs.environment }}-monthly"
+          filter=$(jq -nc --arg app "${{ inputs.appname }}" --arg env "${{ inputs.environment }}" \
+            '{And:[{Tags:{Key:"projectname",Values:[$app]}},{Tags:{Key:"env",Values:[$env]}}]}')
+          aws ce get-cost-and-usage \
+            --time-period "Start=$start,End=$end" \
+            --granularity MONTHLY \
+            --metrics UnblendedCost \
+            --filter "$filter" \
+            --group-by Type=DIMENSION,Key=SERVICE > cost.json
+          aws budgets describe-budget --account-id "$account_id" \
+            --budget-name "$budget_name" > budget.json
+          {
+            echo "## AWS Cost Report: ${{ inputs.appname }} / ${{ inputs.environment }}"
+            echo
+            echo "| Service | Month-to-date USD |"
+            echo "|---|---:|"
+            jq -r '.ResultsByTime[].Groups[] | "| \(.Keys[0]) | \(.Metrics.UnblendedCost.Amount | tonumber | . * 100 | round / 100) |"' cost.json
+            echo
+            echo "### Budget"
+            echo
+            echo "| Budget | Limit | Actual | Forecast |"
+            echo "|---|---:|---:|---:|"
+            jq -r '.Budget | "| \(.BudgetName) | \(.BudgetLimit.Amount) \(.BudgetLimit.Unit) | \(.CalculatedSpend.ActualSpend.Amount) \(.CalculatedSpend.ActualSpend.Unit) | \(.CalculatedSpend.ForecastedSpend.Amount // "N/A") \(.CalculatedSpend.ForecastedSpend.Unit // "") |"' budget.json
+          } | tee cost-report.md
+          cat cost-report.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cost-${{ inputs.appname }}-${{ inputs.environment }}
+          path: cost-report.md
+          retention-days: 30

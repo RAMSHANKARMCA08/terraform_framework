@@ -9,3 +9,4 @@ output "sydney_alb_dns" { value = module.application.sydney_alb_dns }
 output "route53_zone_id" { value = module.application.route53_zone_id }
 output "mumbai_instance_id" { value = module.application.mumbai_instance_id }
 output "sydney_instance_id" { value = module.application.sydney_instance_id }
+output "budget_name" { value = module.application.budget_name }

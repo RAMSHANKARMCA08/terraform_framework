@@ -1,0 +1,151 @@
+name: Application Delete
+
+on:
+  workflow_dispatch:
+    inputs:
+      appname:
+        description: Application folder name under applications/
+        required: true
+        type: string
+        default: instant-app
+      environment:
+        description: Environment folder name
+        required: true
+        type: string
+        default: prod
+      confirmation:
+        description: Type DELETE to confirm destruction
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deployment-${{ inputs.appname }}-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  delete:
+    name: Delete ${{ inputs.appname }} / ${{ inputs.environment }}
+    runs-on: [self-hosted, linux, terraform]
+    environment: ${{ inputs.environment == 'prod' && 'production' || 'non-production' }}
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TF_DESTROY_PLAN_FILE: application-destroy.tfplan
+      PG_CONN_STR: ${{ secrets.TF_STATE_CONNECTION }}
+
+    steps:
+      - name: Confirm deletion
+        shell: bash
+        run: |
+          if [[ "${{ inputs.confirmation }}" != "DELETE" ]]; then
+            echo "::error::Deletion confirmation must be exactly DELETE"
+            exit 1
+          fi
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Select Terraform root
+        id: root
+        shell: bash
+        run: |
+          appname="${{ inputs.appname }}"
+          environment="${{ inputs.environment }}"
+          if [[ ! "$appname" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+            echo "::error::Invalid application name: $appname"
+            exit 1
+          fi
+          if [[ ! "$environment" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+            echo "::error::Invalid environment name: $environment"
+            exit 1
+          fi
+          directory="applications/${appname}/${environment}"
+          if [[ ! -d "$directory" ]] || ! find "$directory" -maxdepth 1 -name '*.tf' -print -quit | grep -q .; then
+            echo "::error::Terraform root not found: $directory"
+            exit 1
+          fi
+          echo "directory=$directory" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ap-south-1
+
+      - name: Load Terraform version
+        id: versions
+        shell: bash
+        run: |
+          terraform_version=$(bash scripts/get-ci-tool-version.sh terraform)
+          echo "terraform=$terraform_version" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ steps.versions.outputs.terraform }}
+
+      - name: Load state backend
+        id: backend
+        shell: bash
+        run: |
+          backend=$(python3 -c "import json; print(json.load(open('config/terraform/state-management.json'))['default_backend'])")
+          echo "name=$backend" >> "$GITHUB_OUTPUT"
+          python3 scripts/configure_state_backend.py \
+            --backend "$backend" \
+            --application "${{ inputs.appname }}" \
+            --environment "${{ inputs.environment }}" \
+            --output "${{ steps.root.outputs.directory }}/backend.generated.tf"
+
+      - name: Initialize Terraform
+        working-directory: ${{ steps.root.outputs.directory }}
+        shell: bash
+        env:
+          STATE_BACKEND: ${{ steps.backend.outputs.name }}
+        run: |
+          backend_args=()
+          if [[ "$STATE_BACKEND" == "s3" ]]; then
+            backend_args+=("-backend-config=bucket=${{ vars.TF_STATE_STORAGE }}")
+          fi
+          terraform init -input=false -reconfigure "${backend_args[@]}"
+
+      - name: Validate Terraform
+        working-directory: ${{ steps.root.outputs.directory }}
+        run: terraform validate -no-color
+
+      - name: Create destroy plan
+        working-directory: ${{ steps.root.outputs.directory }}
+        run: |
+          terraform plan -destroy -input=false -no-color \
+            -var-file=terraform.tfvars -out="$TF_DESTROY_PLAN_FILE"
+          terraform show -json "$TF_DESTROY_PLAN_FILE" > terraform-destroy-plan.json
+          python3 ../../../scripts/terraform_plan_table.py \
+            terraform-destroy-plan.json --output terraform-destroy-plan-table.md
+          cat terraform-destroy-plan-table.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload destroy report
+        uses: actions/upload-artifact@v4
+        with:
+          name: destroy-plan-${{ inputs.appname }}-${{ inputs.environment }}
+          path: ${{ steps.root.outputs.directory }}/terraform-destroy-plan-table.md
+          retention-days: 30
+
+      - name: Delete application resources
+        working-directory: ${{ steps.root.outputs.directory }}
+        run: terraform apply -input=false -auto-approve "$TF_DESTROY_PLAN_FILE"
+
+      - name: Confirm state is empty
+        working-directory: ${{ steps.root.outputs.directory }}
+        shell: bash
+        run: |
+          remaining=$(terraform state list)
+          if [[ -n "$remaining" ]]; then
+            echo "::error::Resources remain in Terraform state:"
+            echo "$remaining"
+            exit 1
+          fi
+          echo "All resources owned by ${{ inputs.appname }}/${{ inputs.environment }} were deleted."

@@ -2,9 +2,19 @@ terraform {
   required_providers {
     aws = {
       source = "hashicorp/aws"
-      configuration_aliases = [aws.mumbai, aws.sydney]
+      configuration_aliases = [aws.mumbai, aws.sydney, aws.billing]
     }
   }
+}
+
+module "budget" {
+  source    = "../budget"
+  providers = { aws = aws.billing }
+
+  application       = var.application
+  environment       = var.environment
+  monthly_limit_usd = var.monthly_budget_usd
+  tags              = local.tags
 }
 
 locals {

@@ -9,3 +9,4 @@ output "sydney_alb_dns" { value = module.sydney_application.alb_dns_name }
 output "route53_zone_id" { value = data.aws_route53_zone.existing.zone_id }
 output "mumbai_instance_id" { value = module.mumbai_application.instance_id }
 output "sydney_instance_id" { value = module.sydney_application.instance_id }
+output "budget_name" { value = module.budget.name }

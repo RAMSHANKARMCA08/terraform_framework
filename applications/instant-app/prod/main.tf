@@ -15,6 +15,7 @@ module "application" {
   providers = {
     aws.mumbai = aws.mumbai
     aws.sydney = aws.sydney
+    aws.billing = aws.billing
   }
 
   application                 = var.application
@@ -34,5 +35,6 @@ module "application" {
   instance_type               = var.instance_type
   key_name                    = var.key_name
   use_autoscaling             = var.use_autoscaling
+  monthly_budget_usd          = var.monthly_budget_usd
   tags                        = var.tags
 }

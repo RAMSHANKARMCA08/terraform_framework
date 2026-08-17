@@ -42,6 +42,10 @@ variable "use_autoscaling" {
   type    = bool
   default = false
 }
+variable "monthly_budget_usd" {
+  type    = number
+  default = 50
+}
 variable "tags" {
   type    = map(string)
   default = {}

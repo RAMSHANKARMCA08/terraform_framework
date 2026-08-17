@@ -19,3 +19,9 @@ provider "aws" {
   region = var.sydney_region
   default_tags { tags = local.tags }
 }
+
+provider "aws" {
+  alias  = "billing"
+  region = "us-east-1"
+  default_tags { tags = local.tags }
+}
