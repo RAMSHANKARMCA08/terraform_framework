@@ -1,0 +1,159 @@
+name: Application Terraform Drift
+
+on:
+  # Automatic schedule disabled temporarily. Uncomment to restore daily runs.
+  # schedule:
+  #   - cron: "30 16 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.roots.outputs.matrix }}
+      state_backend: ${{ steps.backend.outputs.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Discover applications and environments
+        id: roots
+        run: |
+          matrix=$(python3 scripts/discover_terraform_roots.py --application all --environment all)
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "$matrix" | python3 -m json.tool
+      - name: Load configured state backend
+        id: backend
+        run: |
+          backend=$(python3 -c "import json; print(json.load(open('config/terraform/state-management.json'))['default_backend'])")
+          echo "name=$backend" >> "$GITHUB_OUTPUT"
+          echo "Using configured state backend: $backend"
+
+  drift:
+    name: ${{ matrix.application }} / ${{ matrix.environment }}
+    needs: discover
+    runs-on: [self-hosted, linux, terraform]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      PG_CONN_STR: ${{ secrets.TF_STATE_POSTGRES_CONNECTION }}
+      STATE_BACKEND: ${{ needs.discover.outputs.state_backend }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ap-south-1
+      - name: Load Terraform version
+        id: versions
+        run: |
+          terraform_version=$(bash scripts/get-ci-tool-version.sh terraform)
+          echo "terraform=$terraform_version" >> "$GITHUB_OUTPUT"
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ steps.versions.outputs.terraform }}
+      - name: Configure state backend
+        run: >-
+          python3 scripts/configure_state_backend.py
+          --backend "$STATE_BACKEND"
+          --application "${{ matrix.application }}"
+          --environment "${{ matrix.environment }}"
+          --output "${{ matrix.directory }}/backend.generated.tf"
+      - name: Initialize Terraform
+        id: init
+        continue-on-error: true
+        working-directory: ${{ matrix.directory }}
+        shell: bash
+        run: |
+          backend_args=()
+          if [[ "$STATE_BACKEND" == "s3-dynamodb" ]]; then
+            backend_args+=("-backend-config=bucket=${{ vars.TF_STATE_BUCKET }}")
+            backend_args+=("-backend-config=dynamodb_table=${{ vars.TF_LOCK_TABLE }}")
+          fi
+          terraform init -input=false -reconfigure "${backend_args[@]}"
+      - name: Check drift
+        id: plan
+        if: steps.init.outcome == 'success'
+        working-directory: ${{ matrix.directory }}
+        shell: bash
+        run: |
+          set +e
+          terraform plan -input=false -refresh-only -detailed-exitcode -no-color -var-file=terraform.tfvars > terraform-drift.txt 2>&1
+          exit_code=$?
+          set -e
+          cat terraform-drift.txt
+          case "$exit_code" in
+            0) status=CLEAN ;;
+            2) status=DRIFT ;;
+            *) status=ERROR ;;
+          esac
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+      - name: Record result
+        if: always()
+        shell: bash
+        run: |
+          status="${{ steps.plan.outputs.status }}"
+          report="${{ matrix.directory }}/terraform-drift.txt"
+          if [[ "${{ steps.init.outcome }}" != "success" ]]; then
+            status=ERROR
+            report="${{ runner.temp }}/terraform-drift.txt"
+            echo "Terraform initialization failed. Review this matrix job's logs." > "$report"
+          elif [[ -z "$status" ]]; then
+            status=ERROR
+            report="${{ runner.temp }}/terraform-drift.txt"
+            echo "Terraform drift plan did not produce a status." > "$report"
+          fi
+          python3 scripts/create_drift_result.py --application "${{ matrix.application }}" --environment "${{ matrix.environment }}" --status "$status" --report "$report" --output "${{ runner.temp }}/${{ matrix.application }}-${{ matrix.environment }}.json"
+      - name: Upload result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: drift-result-${{ matrix.application }}-${{ matrix.environment }}
+          path: ${{ runner.temp }}/${{ matrix.application }}-${{ matrix.environment }}.json
+          retention-days: 30
+
+  report:
+    name: Aggregate drift report
+    needs: [discover, drift]
+    if: always() && needs.discover.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download application results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: drift-result-*
+          path: drift-results
+          merge-multiple: true
+      - name: Build drift table
+        id: summary
+        run: python3 scripts/aggregate_drift_results.py --reports-dir drift-results --output drift-summary.json | tee -a "$GITHUB_OUTPUT"
+      - name: Upload combined report
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-drift-summary
+          path: drift-summary.json
+          retention-days: 30
+      - name: Email drift table
+        if: steps.summary.outputs.has_drift == 'true'
+        env:
+          SMTP_HOST: ${{ vars.SMTP_HOST }}
+          SMTP_PORT: ${{ vars.SMTP_PORT }}
+          SMTP_FROM: ${{ vars.SMTP_FROM }}
+          SMTP_TO: ${{ vars.SMTP_TO }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+        run: >-
+          python3 scripts/send_application_drift_email.py
+          --summary drift-summary.json
+          --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      - name: Fail when drift or errors exist
+        if: steps.summary.outputs.has_drift == 'true' || steps.summary.outputs.has_errors == 'true'
+        run: exit 2

@@ -1,0 +1,9 @@
+output "environment" { value = module.application.environment }
+output "application_url" { value = module.application.application_url }
+output "mumbai_application_url" { value = module.application.mumbai_application_url }
+output "sydney_application_url" { value = module.application.sydney_application_url }
+output "mumbai_region" { value = module.application.mumbai_region }
+output "sydney_region" { value = module.application.sydney_region }
+output "mumbai_alb_dns" { value = module.application.mumbai_alb_dns }
+output "sydney_alb_dns" { value = module.application.sydney_alb_dns }
+output "route53_zone_id" { value = module.application.route53_zone_id }

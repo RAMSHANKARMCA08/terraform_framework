@@ -1,0 +1,9 @@
+output "environment" { value = var.environment }
+output "application_url" { value = "https://${local.main_hostname}" }
+output "mumbai_application_url" { value = "https://${local.mumbai_hostname}" }
+output "sydney_application_url" { value = "https://${local.sydney_hostname}" }
+output "mumbai_region" { value = var.mumbai_region }
+output "sydney_region" { value = var.sydney_region }
+output "mumbai_alb_dns" { value = module.mumbai_application.alb_dns_name }
+output "sydney_alb_dns" { value = module.sydney_application.alb_dns_name }
+output "route53_zone_id" { value = data.aws_route53_zone.existing.zone_id }

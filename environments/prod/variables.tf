@@ -122,7 +122,7 @@ variable "node_groups" {
 variable "ecr_repository_names" {
   description = "List of ECR repositories to create."
   type        = list(string)
-  default     = ["app1", "app2", "app3"]
+  default     = []
 }
 
 variable "ecr_encryption_type" {
