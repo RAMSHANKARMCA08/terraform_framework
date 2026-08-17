@@ -2,6 +2,25 @@ data "aws_ssm_parameter" "al2023" {
   name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
 }
 
+locals {
+  user_data = <<-EOT
+    #!/bin/bash
+    set -euo pipefail
+    dnf install -y httpd
+    server_hostname=$(hostname)
+    cat >/var/www/html/index.html <<HTML
+    <!doctype html>
+    <html><body>
+      <h1>Welcome to my application</h1>
+      <p>Hostname: $server_hostname</p>
+      <p>Location: ${title(var.region_label)}</p>
+    </body></html>
+    HTML
+    printf 'healthy\n' >/var/www/html/health
+    systemctl enable --now httpd
+  EOT
+}
+
 module "alb_sg" {
   source              = "../security-groups"
   name_prefix         = var.name_prefix
@@ -21,8 +40,14 @@ module "application_sg" {
   security_group_name = "${var.region_label}-application"
   description         = "Application traffic from the regional VPC"
   vpc_id              = var.vpc_id
-  ingress_rules = [
-    { protocol = "tcp", from_port = 80, to_port = 80, cidr_ipv4 = var.vpc_cidr, description = "HTTP from regional ALB" }
+  ingress_security_group_rules = [
+    {
+      protocol                     = "tcp"
+      from_port                    = 80
+      to_port                      = 80
+      referenced_security_group_id = module.alb_sg.security_group_id
+      description                  = "HTTP from regional ALB"
+    }
   ]
   tags = var.tags
 }
@@ -43,29 +68,14 @@ module "alb" {
 }
 
 resource "aws_launch_template" "this" {
+  count                  = var.use_autoscaling ? 1 : 0
   name_prefix            = "${var.name_prefix}-${var.region_label}-"
   image_id               = data.aws_ssm_parameter.al2023.value
   instance_type          = var.instance_type
   key_name               = var.key_name
   update_default_version = true
   vpc_security_group_ids = [module.application_sg.security_group_id]
-  user_data = base64encode(<<-EOT
-    #!/bin/bash
-    set -euo pipefail
-    dnf install -y httpd
-    server_hostname=$(hostname)
-    cat >/var/www/html/index.html <<HTML
-    <!doctype html>
-    <html><body>
-      <h1>Welcome to my application</h1>
-      <p>Hostname: $server_hostname</p>
-      <p>Location: ${title(var.region_label)}</p>
-    </body></html>
-    HTML
-    printf 'healthy\n' >/var/www/html/health
-    systemctl enable --now httpd
-  EOT
-  )
+  user_data = base64encode(local.user_data)
   metadata_options {
     http_endpoint = "enabled"
     http_tokens   = "required"
@@ -91,6 +101,7 @@ resource "aws_launch_template" "this" {
 }
 
 resource "aws_autoscaling_group" "this" {
+  count               = var.use_autoscaling ? 1 : 0
   name                = "${var.name_prefix}-${var.region_label}"
   vpc_zone_identifier = var.private_subnet_ids
   desired_capacity    = var.desired_capacity
@@ -99,7 +110,7 @@ resource "aws_autoscaling_group" "this" {
   target_group_arns   = [module.alb.target_group_arn]
   health_check_type   = "ELB"
   launch_template {
-    id      = aws_launch_template.this.id
+    id      = aws_launch_template.this[0].id
     version = "$Latest"
   }
   dynamic "tag" {
@@ -110,4 +121,38 @@ resource "aws_autoscaling_group" "this" {
       propagate_at_launch = true
     }
   }
+}
+
+resource "aws_instance" "this" {
+  count                       = var.use_autoscaling ? 0 : 1
+  ami                         = data.aws_ssm_parameter.al2023.value
+  instance_type               = var.instance_type
+  key_name                    = var.key_name
+  subnet_id                   = var.private_subnet_ids[0]
+  vpc_security_group_ids      = [module.application_sg.security_group_id]
+  associate_public_ip_address = false
+  user_data                   = local.user_data
+  user_data_replace_on_change = true
+
+  metadata_options {
+    http_endpoint = "enabled"
+    http_tokens   = "required"
+  }
+
+  root_block_device {
+    volume_size           = 8
+    volume_type           = "gp3"
+    encrypted             = true
+    delete_on_termination = true
+    tags                   = var.tags
+  }
+
+  tags = merge(var.tags, { Name = "${var.name_prefix}-${var.region_label}" })
+}
+
+resource "aws_lb_target_group_attachment" "this" {
+  count            = var.use_autoscaling ? 0 : 1
+  target_group_arn = module.alb.target_group_arn
+  target_id        = aws_instance.this[0].id
+  port             = 80
 }

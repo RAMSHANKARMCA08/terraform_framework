@@ -33,5 +33,6 @@ module "application" {
   sydney_private_subnet_cidrs = var.sydney_private_subnet_cidrs
   instance_type               = var.instance_type
   key_name                    = var.key_name
+  use_autoscaling             = var.use_autoscaling
   tags                        = var.tags
 }

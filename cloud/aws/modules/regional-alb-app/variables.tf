@@ -13,6 +13,11 @@ variable "key_name" {
   description = "Existing regional EC2 key pair name used by application instances."
   type        = string
 }
+variable "use_autoscaling" {
+  description = "Use an Auto Scaling Group instead of one directly managed EC2 instance."
+  type        = bool
+  default     = true
+}
 variable "desired_capacity" {
   type    = number
   default = 1
@@ -23,7 +28,7 @@ variable "min_size" {
 }
 variable "max_size" {
   type    = number
-  default = 2
+  default = 1
 }
 variable "tags" {
   type    = map(string)

@@ -8,7 +8,8 @@ The main endpoint is `https://instant-app.ramdevops.site`. Regional diagnostic
 endpoints are `https://mumbai-instant-app.ramdevops.site` and
 `https://sydney-instant-app.ramdevops.site`.
 
-Each region runs Amazon Linux 2023 on a `t3.micro` EC2 instance. Bootstrapping
+Each region runs one directly managed Amazon Linux 2023 `t3.micro` EC2 instance;
+Auto Scaling Groups and launch templates are disabled for this application. Bootstrapping
 installs Apache `httpd` and serves a page containing:
 
 ```text
@@ -34,14 +35,15 @@ Route 53 DNSSEC before changing nameservers. After delegation propagates, Route
 
 During `PLAN` and `CREATE`, the workflow checks for `ramkey2026` in Mumbai and
 Sydney. If it is absent, the workflow imports the OpenSSH public key from GitHub
-Actions secret `RAMKEY2026_PUBLIC_KEY`. Existing keys are unchanged. Store only
+Actions secret `AWS_EC2_KEYPAIR`. Existing keys are unchanged. Store only
 the public key, never the private PEM, in this secret. Drift, ESTIMATE, and
 DESTROY do not import keys. PLAN is otherwise read-only, but key import is an
 intentional bootstrap exception when a regional key is missing.
 
 The workflow exposes `state_backend` as a required choice: `postgres` (default)
-or `s3-dynamodb`. PostgreSQL uses secret `TF_STATE_POSTGRES_CONNECTION`.
-S3+DynamoDB uses repository variables `TF_STATE_BUCKET` and `TF_LOCK_TABLE`.
+or `s3`. Backend-neutral GitHub settings are used: secret
+`TF_STATE_CONNECTION` supplies the active database connection and repository
+variable `TF_STATE_STORAGE` supplies an object-storage name when required.
 Changing the backend of existing state requires a controlled
 `terraform init -migrate-state`; workflows never migrate state automatically.
 

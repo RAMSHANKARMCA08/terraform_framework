@@ -105,6 +105,7 @@ module "mumbai_application" {
   certificate_arn    = aws_acm_certificate_validation.mumbai.certificate_arn
   instance_type      = var.instance_type
   key_name           = var.key_name
+  use_autoscaling    = var.use_autoscaling
   tags               = local.tags
 }
 
@@ -120,6 +121,7 @@ module "sydney_application" {
   certificate_arn    = aws_acm_certificate_validation.sydney.certificate_arn
   instance_type      = var.instance_type
   key_name           = var.key_name
+  use_autoscaling    = var.use_autoscaling
   tags               = local.tags
 }
 

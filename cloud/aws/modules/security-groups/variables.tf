@@ -30,6 +30,18 @@ variable "ingress_rules" {
   default = []
 }
 
+variable "ingress_security_group_rules" {
+  description = "Ingress rules whose source is another security group."
+  type = list(object({
+    protocol                     = string
+    from_port                    = number
+    to_port                      = number
+    referenced_security_group_id = string
+    description                  = string
+  }))
+  default = []
+}
+
 variable "egress_rules" {
   description = "List of egress rules."
   type = list(object({

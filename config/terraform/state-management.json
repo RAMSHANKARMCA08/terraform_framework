@@ -2,12 +2,11 @@
   "default_backend": "postgres",
   "backends": {
     "postgres": {
-      "connection_secret": "TF_STATE_POSTGRES_CONNECTION",
+      "connection_setting": "TF_STATE_CONNECTION",
       "schema_name": "{application}_{environment}"
     },
-    "s3-dynamodb": {
-      "bucket_variable": "TF_STATE_BUCKET",
-      "lock_table_variable": "TF_LOCK_TABLE",
+    "s3": {
+      "storage_setting": "TF_STATE_STORAGE",
       "region": "us-east-1",
       "key_pattern": "{environment}/{application}.tfstate"
     }

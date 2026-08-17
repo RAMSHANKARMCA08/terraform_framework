@@ -17,6 +17,10 @@ variable "instance_type" {
   default = "t3.micro"
 }
 variable "key_name" { type = string }
+variable "use_autoscaling" {
+  type    = bool
+  default = true
+}
 variable "tags" {
   type    = map(string)
   default = {}

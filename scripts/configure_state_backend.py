@@ -10,7 +10,7 @@ def hcl_string(value: str) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate a Terraform backend declaration.")
     parser.add_argument("--config", default="config/terraform/state-management.json")
-    parser.add_argument("--backend", choices=("postgres", "s3-dynamodb"))
+    parser.add_argument("--backend", choices=("postgres", "s3"))
     parser.add_argument("--application", required=True)
     parser.add_argument("--environment", required=True)
     parser.add_argument("--output", required=True)

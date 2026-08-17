@@ -38,6 +38,10 @@ variable "key_name" {
   type    = string
   default = "ramkey2026"
 }
+variable "use_autoscaling" {
+  type    = bool
+  default = false
+}
 variable "tags" {
   type    = map(string)
   default = {}

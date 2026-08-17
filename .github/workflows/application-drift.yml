@@ -40,7 +40,7 @@ jobs:
     env:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
-      PG_CONN_STR: ${{ secrets.TF_STATE_POSTGRES_CONNECTION }}
+      PG_CONN_STR: ${{ secrets.TF_STATE_CONNECTION }}
       STATE_BACKEND: ${{ needs.discover.outputs.state_backend }}
     steps:
       - uses: actions/checkout@v4
@@ -73,9 +73,8 @@ jobs:
         shell: bash
         run: |
           backend_args=()
-          if [[ "$STATE_BACKEND" == "s3-dynamodb" ]]; then
-            backend_args+=("-backend-config=bucket=${{ vars.TF_STATE_BUCKET }}")
-            backend_args+=("-backend-config=dynamodb_table=${{ vars.TF_LOCK_TABLE }}")
+          if [[ "$STATE_BACKEND" == "s3" ]]; then
+            backend_args+=("-backend-config=bucket=${{ vars.TF_STATE_STORAGE }}")
           fi
           terraform init -input=false -reconfigure "${backend_args[@]}"
       - name: Check drift

@@ -4,6 +4,7 @@ owner         = "platform-team"
 domain_name   = "ramdevops.site"
 instance_type = "t3.micro"
 key_name      = "ramkey2026"
+use_autoscaling = false
 
 mumbai_availability_zones   = ["ap-south-1a", "ap-south-1b"]
 mumbai_vpc_cidr             = "10.31.0.0/16"
