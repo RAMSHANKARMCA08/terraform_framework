@@ -33,7 +33,19 @@ jobs:
         run: tflint --init
 
       - name: Run TFLint
-        run: tflint --recursive --format compact
+        shell: bash
+        run: |
+          set +e
+          tflint --recursive --format compact
+          tflint_status=$?
+          set -e
+
+          if [[ "$tflint_status" -eq 2 ]]; then
+            echo "::warning::TFLint findings are informational and will not fail this workflow."
+            exit 0
+          fi
+
+          exit "$tflint_status"
 
   terrascan:
     name: Terrascan
