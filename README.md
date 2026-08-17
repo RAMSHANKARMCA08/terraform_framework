@@ -1,13 +1,15 @@
 # Terraform AWS Framework
 
 Organization-level Terraform framework for reusable AWS infrastructure and
-application deployments. The current application is `instant-app` in `prod`,
-deployed to Mumbai and Sydney with Route 53 failover.
+application deployments. Production applications use one shared CloudFront
+distribution with path-based routing.
 
 ## Repository structure
 
 ```text
 applications/instant-app/prod/     Application Terraform root and values
+applications/myk8sapp/prod/        EKS application Terraform root and values
+applications/shared-routing/prod/  Shared CloudFront and public DNS root
 cloud/aws/modules/                 Reusable AWS Terraform modules
 config/github/sample.env           GitHub Variables and Secrets reference
 config/terraform/state-management.json
@@ -17,7 +19,25 @@ scripts/                           Backend, plan-report, drift, and email tools
 .github/workflows/                 Manual CI/CD workflows
 ```
 
-## instant-app architecture
+## Production routing and applications
+
+The public production hostname is `ramdevops.site`. CloudFront removes the
+application prefix and forwards the request to an application-owned origin.
+
+| URL | Origin behavior |
+| --- | --- |
+| `https://ramdevops.site/instant-app` | Mumbai normally; Sydney after Mumbai target failure |
+| `https://ramdevops.site/myk8sapp` | Mumbai EKS public NodePort worker |
+
+The root URL redirects to `/instant-app`. Non-production environments follow
+`https://<environment>.ramdevops.site/<application>`.
+
+Deploy in this order: `instant-app/prod`, `myk8sapp/prod`, then
+`shared-routing/prod`. Destroy in reverse order. The workflow discovers
+`shared-routing` as a normal application name, but its state owns shared ingress
+rather than an application workload.
+
+### instant-app
 
 Mumbai (`ap-south-1`) is PRIMARY and Sydney (`ap-southeast-2`) is SECONDARY.
 Each region contains a two-AZ VPC, public ALB, private Amazon Linux 2023
@@ -25,11 +45,14 @@ Each region contains a two-AZ VPC, public ALB, private Amazon Linux 2023
 HTTP-to-HTTPS redirect, and regional ACM certificate. EC2 instances are attached
 directly to their target groups; Auto Scaling is disabled for `instant-app`.
 
-| URL | Behavior |
-| --- | --- |
-| `https://instant-app.ramdevops.site` | Mumbai normally; Sydney after Mumbai target failure |
-| `https://mumbai-instant-app.ramdevops.site` | Mumbai ALB only |
-| `https://sydney-instant-app.ramdevops.site` | Sydney ALB only |
+Its failover origin is `origin-instant-app.ramdevops.site`; regional diagnostic
+hostnames remain available for troubleshooting.
+
+### myk8sapp
+
+One public EKS worker in Mumbai runs the test workload. The origin hostname
+`origin-myk8sapp.ramdevops.site` maps to the worker, and CloudFront connects to
+NodePort `30080`. There is no application load balancer for this test stack.
 
 Apache `httpd` displays the application greeting, EC2 hostname, and server
 location. Taggable resources include `env = prod` and
@@ -37,10 +60,10 @@ location. Taggable resources include `env = prod` and
 
 ## Reusable modules
 
-The application root calls `multi-region-alb-app`, which composes the reusable
+The instant application root calls `multi-region-alb-app`, which composes the reusable
 `vpc`, `regional-alb-app`, `alb`, and `security-groups` modules. Other available
-modules support EKS, ECR, IAM, VPC endpoints, Route 53 zones, WAF, and supporting
-Kubernetes controllers.
+modules include `cloudfront-path-router`, EKS, ECR, IAM, VPC endpoints, Route 53
+zones, WAF, and supporting Kubernetes controllers.
 
 ## GitHub Actions
 
@@ -109,8 +132,9 @@ is required only for cost-estimation workflows that use it.
 
 ## Route 53 and GoDaddy
 
-Terraform looks up the existing public `ramdevops.site` Route 53 hosted zone and
-creates only application and ACM-validation records. At GoDaddy, configure the
+Terraform looks up the existing public `ramdevops.site` Route 53 hosted zone.
+Application states create origin records; `shared-routing/prod` creates the apex
+CloudFront A/AAAA aliases and its ACM-validation record. At GoDaddy, configure the
 domain to use the four authoritative Route 53 nameservers. Coordinate any DNSSEC
 DS records before changing delegation.
 
@@ -135,14 +159,22 @@ DS records before changing delegation.
 Application Delete destroys every managed resource recorded in the selected
 application/environment Terraform state, including both EC2 instances, volumes,
 ALBs, target groups, listeners, security groups, VPC networking, NAT gateways,
-Elastic IPs, ACM certificates, application DNS records, and the AWS Budget. It
+Elastic IPs, ACM certificates, origin DNS records, and the AWS Budget. It
 then fails if anything remains in Terraform state.
 
 It intentionally does not delete the shared Route 53 hosted zone, PostgreSQL/S3
 state infrastructure, GoDaddy domain/delegation, GitHub settings, or the
-workflow-imported `ramkey2026` key pair. AWS billing history also remains visible
-after deletion. Resources created manually or removed from Terraform state are
-outside the deletion guarantee.
+workflow-imported `ramkey2026` key pair. The shared CloudFront distribution is
+owned by `shared-routing/prod`; destroy it before destroying either origin
+application. AWS billing history remains visible after deletion. Resources
+created manually or removed from Terraform state are outside the deletion
+guarantee.
+
+For the S3 backend, state keys use `<application>/<environment>.tfstate`. The
+`instant-app/prod` state is therefore stored as
+`s3://<TF_STATE_STORAGE>/instant-app/prod.tfstate`. Changing an existing key is a
+state migration, not a fresh deployment; migrate or copy the existing object
+before planning against the new key.
 
 ## Local validation
 
@@ -158,6 +190,14 @@ terraform fmt -recursive
 terraform -chdir=applications/instant-app/prod init
 terraform -chdir=applications/instant-app/prod validate
 terraform -chdir=applications/instant-app/prod plan -var-file=terraform.tfvars
+
+terraform -chdir=applications/myk8sapp/prod init
+terraform -chdir=applications/myk8sapp/prod validate
+terraform -chdir=applications/myk8sapp/prod plan -var-file=terraform.tfvars
+
+terraform -chdir=applications/shared-routing/prod init
+terraform -chdir=applications/shared-routing/prod validate
+terraform -chdir=applications/shared-routing/prod plan -var-file=terraform.tfvars
 ```
 
 For PostgreSQL, export `PG_CONN_STR`. For S3, supply the configured bucket using

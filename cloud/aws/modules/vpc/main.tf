@@ -46,7 +46,7 @@ resource "aws_subnet" "private" {
 }
 
 locals {
-  nat_gateway_count = var.single_nat_gateway ? 1 : length(var.public_subnet_cidrs)
+  nat_gateway_count = var.create_nat_gateway ? (var.single_nat_gateway ? 1 : length(var.public_subnet_cidrs)) : 0
 }
 
 resource "aws_eip" "nat" {
@@ -97,9 +97,12 @@ resource "aws_route_table" "private" {
 
   vpc_id = aws_vpc.this.id
 
-  route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.this[var.single_nat_gateway ? 0 : tonumber(each.key)].id
+  dynamic "route" {
+    for_each = var.create_nat_gateway ? [1] : []
+    content {
+      cidr_block     = "0.0.0.0/0"
+      nat_gateway_id = aws_nat_gateway.this[var.single_nat_gateway ? 0 : tonumber(each.key)].id
+    }
   }
 
   tags = merge(var.tags, {

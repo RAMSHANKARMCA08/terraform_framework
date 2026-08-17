@@ -4,7 +4,10 @@ This root deploys `instant-app` to Mumbai (`ap-south-1`) and Sydney
 (`ap-southeast-2`) through the reusable multi-region ALB module. Mumbai is the
 Route 53 PRIMARY endpoint and Sydney is SECONDARY.
 
-The main endpoint is `https://instant-app.ramdevops.site`. Regional diagnostic
+The shared public endpoint is `https://ramdevops.site/instant-app`. This root
+publishes `https://origin-instant-app.ramdevops.site` for CloudFront to use;
+the separate `applications/shared-routing/prod` state owns the public hostname
+and path routing. Regional diagnostic
 endpoints are `https://mumbai-instant-app.ramdevops.site` and
 `https://sydney-instant-app.ramdevops.site`.
 
@@ -29,7 +32,9 @@ The Terraform module looks up an existing public Route 53 hosted zone named
 the domain's authoritative nameservers with the four NS values assigned to the
 Route 53 hosted zone. DNSSEC/DS records at GoDaddy must be coordinated with
 Route 53 DNSSEC before changing nameservers. After delegation propagates, Route
-53 serves the ACM validation and application alias records.
+53 serves the ACM validation and origin alias records. Deploy this application
+before `shared-routing/prod`; CloudFront removes `/instant-app` before forwarding
+requests to this origin.
 
 ## Key bootstrap and state backend
 

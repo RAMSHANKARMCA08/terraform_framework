@@ -48,6 +48,11 @@ variable "single_nat_gateway" {
   type        = bool
   default     = true
 }
+variable "create_nat_gateway" {
+  description = "Create NAT gateway resources and private default routes."
+  type        = bool
+  default     = true
+}
 
 variable "tags" {
   description = "Common resource tags."

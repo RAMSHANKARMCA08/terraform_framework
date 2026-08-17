@@ -7,6 +7,16 @@ terraform {
   }
 }
 
+moved {
+  from = aws_route53_record.main_primary
+  to   = aws_route53_record.origin_primary
+}
+
+moved {
+  from = aws_route53_record.main_secondary
+  to   = aws_route53_record.origin_secondary
+}
+
 module "budget" {
   source    = "../budget"
   providers = { aws = aws.billing }
@@ -28,7 +38,8 @@ locals {
     ManagedBy   = "terraform"
     Owner       = var.owner
   }, var.tags)
-  main_hostname    = "${var.application}.${var.domain_name}"
+  main_hostname    = "origin-${var.application}.${var.domain_name}"
+  public_hostname  = var.environment == "prod" ? var.domain_name : "${var.environment}.${var.domain_name}"
   mumbai_hostname  = "mumbai-${var.application}.${var.domain_name}"
   sydney_hostname  = "sydney-${var.application}.${var.domain_name}"
 }
@@ -135,7 +146,7 @@ module "sydney_application" {
   tags               = local.tags
 }
 
-resource "aws_route53_record" "main_primary" {
+resource "aws_route53_record" "origin_primary" {
   provider       = aws.mumbai
   zone_id        = data.aws_route53_zone.existing.zone_id
   name           = local.main_hostname
@@ -149,7 +160,7 @@ resource "aws_route53_record" "main_primary" {
   }
 }
 
-resource "aws_route53_record" "main_secondary" {
+resource "aws_route53_record" "origin_secondary" {
   provider       = aws.mumbai
   zone_id        = data.aws_route53_zone.existing.zone_id
   name           = local.main_hostname

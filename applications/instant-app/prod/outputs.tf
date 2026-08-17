@@ -1,5 +1,6 @@
 output "environment" { value = module.application.environment }
 output "application_url" { value = module.application.application_url }
+output "origin_url" { value = module.application.origin_url }
 output "mumbai_application_url" { value = module.application.mumbai_application_url }
 output "sydney_application_url" { value = module.application.sydney_application_url }
 output "mumbai_region" { value = module.application.mumbai_region }

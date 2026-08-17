@@ -1,5 +1,6 @@
 output "environment" { value = var.environment }
-output "application_url" { value = "https://${local.main_hostname}" }
+output "application_url" { value = "https://${local.public_hostname}/${var.application}" }
+output "origin_url" { value = "https://${local.main_hostname}" }
 output "mumbai_application_url" { value = "https://${local.mumbai_hostname}" }
 output "sydney_application_url" { value = "https://${local.sydney_hostname}" }
 output "mumbai_region" { value = var.mumbai_region }
