@@ -1,8 +1,10 @@
 name: Terraform security checks
 
 on:
-  #push:
-  #pull_request:
+  # Automatic commit and PR execution is disabled. Uncomment when required.
+  # push:
+  # pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
