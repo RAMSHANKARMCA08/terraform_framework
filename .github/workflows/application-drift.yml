@@ -67,7 +67,14 @@ jobs:
         run: |
           backend_args=()
           if [[ "$STATE_BACKEND" == "s3" ]]; then
-            backend_args+=("-backend-config=bucket=${{ vars.TF_STATE_STORAGE }}")
+            if [[ -z "${{ vars.TF_STATE_STORAGE }}" || -z "${{ vars.TF_STATE_LOCK_TABLE }}" ]]; then
+              echo "::error::TF_STATE_STORAGE and TF_STATE_LOCK_TABLE repository variables are required"
+              exit 1
+            fi
+            backend_args+=(
+              "-backend-config=bucket=${{ vars.TF_STATE_STORAGE }}"
+              "-backend-config=dynamodb_table=${{ vars.TF_STATE_LOCK_TABLE }}"
+            )
           fi
           terraform init -input=false -reconfigure "${backend_args[@]}"
       - name: Check drift

@@ -116,7 +116,8 @@ Generic GitHub settings are used:
 
 ```text
 TF_STATE_CONNECTION   PostgreSQL connection string secret
-TF_STATE_STORAGE      S3 bucket variable when the S3 backend is selected
+TF_STATE_STORAGE      S3 bucket repository variable
+TF_STATE_LOCK_TABLE   DynamoDB lock-table repository variable
 ```
 
 Changing an existing backend requires a controlled `terraform init
