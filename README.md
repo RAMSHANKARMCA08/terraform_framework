@@ -120,6 +120,8 @@ TF_STATE_STORAGE      S3 bucket repository variable
 TF_STATE_LOCK_TABLE   DynamoDB lock-table repository variable
 ```
 
+The S3 bucket and DynamoDB lock table are both hosted in `ap-south-1`.
+
 Changing an existing backend requires a controlled `terraform init
 -migrate-state`. Pipelines never migrate state automatically.
 
