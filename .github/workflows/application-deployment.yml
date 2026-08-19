@@ -6,7 +6,10 @@ on:
       application_name:
         description: Application folder name under applications/
         required: true
-        type: string
+        type: choice
+        options:
+          - instant-app
+          - myk8sapp
         default: instant-app
       env:
         description: Environment folder name
