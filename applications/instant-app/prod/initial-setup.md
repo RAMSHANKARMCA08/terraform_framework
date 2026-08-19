@@ -172,9 +172,9 @@ this application root:
    DNSSEC/DS configuration consistent with Route 53.
 3. Configure GitHub AWS credentials and the selected Terraform state-backend
    credentials or variables.
-4. Add the OpenSSH public key to GitHub secret `AWS_EC2_KEYPAIR`. The workflow
-   imports it as `ramkey2026` when the regional key pair is absent. Never store
-   the private PEM in GitHub.
+4. Create or import the externally managed `ramkey2026` EC2 key pair in both
+   `ap-south-1` and `ap-southeast-2` before running Terraform. The workflow does
+   not copy or import key material. Never store the private PEM in GitHub.
 5. Retain the matching `ramkey2026.pem` private key securely for emergency SSH;
    AWS cannot download an existing private key again.
 6. Provision the shared S3 or PostgreSQL state infrastructure before initializing

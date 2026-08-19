@@ -70,13 +70,16 @@ zones, WAF, and supporting Kubernetes controllers.
 All workflows are manually triggered; automatic schedules and PR triggers are
 disabled.
 
-### Application Deployment
+### Application Terraform Operations
 
-Select `appname`, `environment`, and one operation:
+Select `application_name` (default `instant-app`), `env` (default `prod`), and
+one manually triggered `run` operation:
 
-- `PLAN`: create a non-apply plan and publish a redacted Markdown change table.
-- `DEPLOY`: create a saved plan and apply it with automatic approval.
-- `CHECK_DRIFT`: run a refresh-only plan and fail when drift exists.
+- `plan`: create a non-apply plan and publish a redacted Markdown change table.
+- `deploy`: create a saved plan and apply it with automatic approval.
+- `drift`: run a refresh-only plan, publish a drift report, and fail when drift exists.
+- `delete`: create and publish a destroy plan, apply it with automatic approval,
+  and verify that the selected state is empty.
 
 ### Application Delete
 
@@ -122,10 +125,9 @@ Changing an existing backend requires a controlled `terraform init
 ## GitHub configuration
 
 Use [`config/github/sample.env`](config/github/sample.env) as the reference.
-Required AWS secrets are `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`;
-`AWS_SESSION_TOKEN` is optional for temporary credentials. `AWS_EC2_KEYPAIR`
-contains the OpenSSH public key used to import regional `ramkey2026` key pairs.
-Never store the private PEM in GitHub or Terraform state.
+AWS credentials come from the self-hosted runner's IAM role or local AWS
+credential chain. The `ramkey2026` EC2 key pair must already exist in each AWS
+region used by the application; private keys are never stored in GitHub.
 
 SMTP variables and secrets are required only for drift email. The Infracost key
 is required only for cost-estimation workflows that use it.
@@ -164,7 +166,7 @@ then fails if anything remains in Terraform state.
 
 It intentionally does not delete the shared Route 53 hosted zone, PostgreSQL/S3
 state infrastructure, GoDaddy domain/delegation, GitHub settings, or the
-workflow-imported `ramkey2026` key pair. The shared CloudFront distribution is
+externally managed `ramkey2026` key pair. The shared CloudFront distribution is
 owned by `shared-routing/prod`; destroy it before destroying either origin
 application. AWS billing history remains visible after deletion. Resources
 created manually or removed from Terraform state are outside the deletion

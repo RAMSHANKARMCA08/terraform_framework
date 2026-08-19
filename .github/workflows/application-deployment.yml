@@ -1,41 +1,42 @@
-name: Application Deployment
+name: Application Terraform Operations
 
 on:
   workflow_dispatch:
     inputs:
-      appname:
+      application_name:
         description: Application folder name under applications/
         required: true
         type: string
         default: instant-app
-      environment:
+      env:
         description: Environment folder name
         required: true
         type: string
         default: prod
-      action:
+      run:
         description: Terraform operation
         required: true
         type: choice
-        options: [PLAN, DEPLOY, CHECK_DRIFT]
-        default: PLAN
+        options: [plan, deploy, drift, delete]
+        default: plan
 
 permissions:
   contents: read
 
 concurrency:
-  group: deployment-${{ inputs.appname }}-${{ inputs.environment }}
+  group: terraform-${{ inputs.application_name }}-${{ inputs.env }}
   cancel-in-progress: false
 
 jobs:
   terraform:
-    name: ${{ inputs.appname }} / ${{ inputs.environment }} / ${{ inputs.action }}
-    runs-on: [self-hosted, linux, terraform]
-    environment: ${{ inputs.environment == 'prod' && inputs.action == 'DEPLOY' && 'production' || 'non-production' }}
+    name: ${{ inputs.application_name }} / ${{ inputs.env }} / ${{ inputs.run }}
+    runs-on: self-hosted
+    environment: ${{ inputs.env == 'prod' && (inputs.run == 'deploy' || inputs.run == 'delete') && 'production' || 'non-production' }}
     env:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
       TF_PLAN_FILE: application.tfplan
+      TF_DESTROY_PLAN_FILE: application-destroy.tfplan
       PG_CONN_STR: ${{ secrets.TF_STATE_CONNECTION }}
 
     steps:
@@ -46,8 +47,8 @@ jobs:
         id: root
         shell: bash
         run: |
-          appname="${{ inputs.appname }}"
-          environment="${{ inputs.environment }}"
+          appname="${{ inputs.application_name }}"
+          environment="${{ inputs.env }}"
           if [[ ! "$appname" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
             echo "::error::Invalid application name: $appname"
             exit 1
@@ -62,14 +63,6 @@ jobs:
             exit 1
           fi
           echo "directory=$directory" >> "$GITHUB_OUTPUT"
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
-          aws-region: ap-south-1
 
       - name: Load Terraform version
         id: versions
@@ -91,39 +84,9 @@ jobs:
           echo "name=$backend" >> "$GITHUB_OUTPUT"
           python3 scripts/configure_state_backend.py \
             --backend "$backend" \
-            --application "${{ inputs.appname }}" \
-            --environment "${{ inputs.environment }}" \
+            --application "${{ inputs.application_name }}" \
+            --environment "${{ inputs.env }}" \
             --output "${{ steps.root.outputs.directory }}/backend.generated.tf"
-
-      - name: Ensure instant-app EC2 keys
-        if: inputs.appname == 'instant-app' && (inputs.action == 'PLAN' || inputs.action == 'DEPLOY')
-        shell: bash
-        env:
-          EC2_PUBLIC_KEY: ${{ secrets.AWS_EC2_KEYPAIR }}
-        run: |
-          set -euo pipefail
-          missing_regions=()
-          for region in ap-south-1 ap-southeast-2; do
-            if ! aws ec2 describe-key-pairs --region "$region" --key-names ramkey2026 >/dev/null 2>&1; then
-              missing_regions+=("$region")
-            fi
-          done
-          if [[ ${#missing_regions[@]} -eq 0 ]]; then
-            echo "ramkey2026 already exists in both regions"
-            exit 0
-          fi
-          if [[ -z "$EC2_PUBLIC_KEY" ]]; then
-            echo "::error::AWS_EC2_KEYPAIR is required; ramkey2026 is missing in: ${missing_regions[*]}"
-            exit 1
-          fi
-          key_file="${{ runner.temp }}/ec2-key.pub"
-          trap 'rm -f "$key_file"' EXIT
-          printf '%s\n' "$EC2_PUBLIC_KEY" > "$key_file"
-          chmod 600 "$key_file"
-          for region in "${missing_regions[@]}"; do
-            aws ec2 import-key-pair --region "$region" --key-name ramkey2026 \
-              --public-key-material "fileb://$key_file" >/dev/null
-          done
 
       - name: Initialize Terraform
         working-directory: ${{ steps.root.outputs.directory }}
@@ -142,7 +105,7 @@ jobs:
         run: terraform validate -no-color
 
       - name: Plan
-        if: inputs.action == 'PLAN' || inputs.action == 'DEPLOY'
+        if: inputs.run == 'plan' || inputs.run == 'deploy'
         working-directory: ${{ steps.root.outputs.directory }}
         run: |
           terraform plan -input=false -no-color -var-file=terraform.tfvars -out="$TF_PLAN_FILE"
@@ -151,29 +114,91 @@ jobs:
           cat terraform-plan-table.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload readable plan
-        if: inputs.action == 'PLAN' || inputs.action == 'DEPLOY'
+        if: inputs.run == 'plan' || inputs.run == 'deploy'
         uses: actions/upload-artifact@v4
         with:
-          name: plan-${{ inputs.appname }}-${{ inputs.environment }}
+          name: plan-${{ inputs.application_name }}-${{ inputs.env }}
           path: ${{ steps.root.outputs.directory }}/terraform-plan-table.md
           retention-days: 30
 
       - name: Deploy with auto approval
-        if: inputs.action == 'DEPLOY'
+        if: inputs.run == 'deploy'
         working-directory: ${{ steps.root.outputs.directory }}
         run: terraform apply -input=false -auto-approve "$TF_PLAN_FILE"
 
       - name: Check drift
-        if: inputs.action == 'CHECK_DRIFT'
+        id: drift
+        if: inputs.run == 'drift'
         working-directory: ${{ steps.root.outputs.directory }}
         shell: bash
         run: |
           set +e
           terraform plan -input=false -refresh-only -detailed-exitcode -no-color \
-            -var-file=terraform.tfvars
+            -var-file=terraform.tfvars -out=terraform-drift.tfplan \
+            > terraform-drift.txt 2>&1
           exit_code=$?
           set -e
+          cat terraform-drift.txt
           if [[ $exit_code -eq 2 ]]; then
             echo "::error::Terraform drift detected"
+            terraform show -json terraform-drift.tfplan > terraform-drift.json
+            python3 ../../../scripts/terraform_plan_table.py \
+              terraform-drift.json --output terraform-drift-report.md
+          elif [[ $exit_code -eq 0 ]]; then
+            printf '# Terraform drift report\n\nNo drift detected.\n' > terraform-drift-report.md
+          else
+            printf '# Terraform drift report\n\nDrift check failed. See `terraform-drift.txt`.\n' > terraform-drift-report.md
           fi
-          exit "$exit_code"
+          cat terraform-drift-report.md >> "$GITHUB_STEP_SUMMARY"
+          echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
+
+      - name: Upload drift report
+        if: always() && inputs.run == 'drift'
+        uses: actions/upload-artifact@v4
+        with:
+          name: drift-${{ inputs.application_name }}-${{ inputs.env }}
+          path: |
+            ${{ steps.root.outputs.directory }}/terraform-drift-report.md
+            ${{ steps.root.outputs.directory }}/terraform-drift.txt
+          retention-days: 30
+
+      - name: Fail when drift is detected
+        if: inputs.run == 'drift' && steps.drift.outputs.exit_code != '0'
+        run: exit ${{ steps.drift.outputs.exit_code || 1 }}
+
+      - name: Create destroy plan and report
+        if: inputs.run == 'delete'
+        working-directory: ${{ steps.root.outputs.directory }}
+        run: |
+          terraform plan -destroy -input=false -no-color \
+            -var-file=terraform.tfvars -out="$TF_DESTROY_PLAN_FILE"
+          terraform show -json "$TF_DESTROY_PLAN_FILE" > terraform-destroy.json
+          python3 ../../../scripts/terraform_plan_table.py \
+            terraform-destroy.json --output terraform-destroy-report.md
+          cat terraform-destroy-report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload destroy report
+        if: inputs.run == 'delete'
+        uses: actions/upload-artifact@v4
+        with:
+          name: delete-${{ inputs.application_name }}-${{ inputs.env }}
+          path: ${{ steps.root.outputs.directory }}/terraform-destroy-report.md
+          retention-days: 30
+
+      - name: Delete with auto approval
+        if: inputs.run == 'delete'
+        working-directory: ${{ steps.root.outputs.directory }}
+        run: terraform apply -input=false -auto-approve "$TF_DESTROY_PLAN_FILE"
+
+      - name: Verify deletion
+        if: inputs.run == 'delete'
+        working-directory: ${{ steps.root.outputs.directory }}
+        shell: bash
+        run: |
+          remaining=$(terraform state list)
+          if [[ -n "$remaining" ]]; then
+            echo "::error::Resources remain in Terraform state:"
+            echo "$remaining"
+            exit 1
+          fi
+          echo "All Terraform-managed resources were deleted."

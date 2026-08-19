@@ -36,14 +36,11 @@ Route 53 DNSSEC before changing nameservers. After delegation propagates, Route
 before `shared-routing/prod`; CloudFront removes `/instant-app` before forwarding
 requests to this origin.
 
-## Key bootstrap and state backend
+## EC2 key and state backend
 
-During `PLAN` and `CREATE`, the workflow checks for `ramkey2026` in Mumbai and
-Sydney. If it is absent, the workflow imports the OpenSSH public key from GitHub
-Actions secret `AWS_EC2_KEYPAIR`. Existing keys are unchanged. Store only
-the public key, never the private PEM, in this secret. Drift, ESTIMATE, and
-DESTROY do not import keys. PLAN is otherwise read-only, but key import is an
-intentional bootstrap exception when a regional key is missing.
+The externally managed `ramkey2026` EC2 key pair must exist in Mumbai and
+Sydney before planning or deploying. The workflow does not create, copy, or
+import key material. Keep its private key outside GitHub and Terraform state.
 
 The workflow exposes `state_backend` as a required choice: `postgres` (default)
 or `s3`. Backend-neutral GitHub settings are used: secret
