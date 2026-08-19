@@ -1,4 +1,4 @@
-name: Application Terraform Operations
+name: Deployment
 
 on:
   workflow_dispatch:
@@ -30,7 +30,7 @@ concurrency:
 jobs:
   terraform:
     name: ${{ inputs.application_name }} / ${{ inputs.env }} / ${{ inputs.run }}
-    runs-on: self-hosted
+    runs-on: myselfhosted
     environment: ${{ inputs.env == 'prod' && (inputs.run == 'deploy' || inputs.run == 'delete') && 'production' || 'non-production' }}
     env:
       TF_IN_AUTOMATION: "true"
