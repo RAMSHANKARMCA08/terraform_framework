@@ -118,14 +118,19 @@ jobs:
           terraform plan -input=false -no-color -var-file=terraform.tfvars -out="$TF_PLAN_FILE"
           terraform show -json "$TF_PLAN_FILE" > terraform-plan.json
           python3 ../../../scripts/terraform_plan_table.py terraform-plan.json --output terraform-plan-table.md
+          python3 ../../../scripts/terraform_cost_services.py \
+            terraform-plan.json --output terraform-cost-impact.md
           cat terraform-plan-table.md >> "$GITHUB_STEP_SUMMARY"
+          cat terraform-cost-impact.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload readable plan
         if: inputs.run == 'plan' || inputs.run == 'deploy'
         uses: actions/upload-artifact@v4
         with:
           name: plan-${{ inputs.application_name }}-${{ inputs.env }}
-          path: ${{ steps.root.outputs.directory }}/terraform-plan-table.md
+          path: |
+            ${{ steps.root.outputs.directory }}/terraform-plan-table.md
+            ${{ steps.root.outputs.directory }}/terraform-cost-impact.md
           retention-days: 30
 
       - name: Deploy with auto approval

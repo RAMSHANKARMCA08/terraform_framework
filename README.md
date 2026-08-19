@@ -75,8 +75,10 @@ disabled.
 Select `application_name` (default `instant-app`), `env` (default `prod`), and
 one manually triggered `run` operation:
 
-- `plan`: create a non-apply plan and publish a redacted Markdown change table.
-- `deploy`: create a saved plan and apply it with automatic approval.
+- `plan`: create a non-apply plan and publish redacted change and AWS
+  Free-Tier-aware cost-impact tables.
+- `deploy`: create the same reports, then apply the saved plan with automatic
+  approval.
 - `drift`: run a refresh-only plan, publish a drift report, and fail when drift exists.
 - `delete`: create and publish a destroy plan, apply it with automatic approval,
   and verify that the selected state is empty.
